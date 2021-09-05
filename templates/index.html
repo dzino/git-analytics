@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Git Статистика</title>
+    <!-- Bootstrap -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta1/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-giJF6kkoqNQ00vy+HMDP7azOuL0xtbfIcaT9wjKHr8RbDVddVHyTfAAsrekwKmP1"
+      crossorigin="anonymous"
+    />
+
+    <!-- Google chart: https://developers.google.com/chart/interactive/docs/quick_start -->
+    <script
+      type="text/javascript"
+      src="https://www.gstatic.com/charts/loader.js"
+    ></script>
+  </head>
+
+  <body>
+    <!-- Vue App -->
+    <div id="app" class="container">
+      <br />
+      <div class="d-flex flex-row justify-content-between">
+        <h3 style="font-weight: bold">GIT СТАТИСТИКА</h3>
+        <div class="d-flex flex-row" style="padding-top: 10px">
+          <!-- justify-content-between -->
+          <p style="margin-right: 10px">Количество строк:</p>
+          <p style="margin-right: 10px; font-weight: bold" v-html="line"></p>
+          <p style="margin-right: 10px">Количество коммитов:</p>
+          <p style="margin-right: 10px; font-weight: bold" v-html="commit"></p>
+          <p style="margin-right: 10px">Количество дней:</p>
+          <p
+            style="margin-right: 10px; font-weight: bold"
+            v-html="lineChanges"
+          ></p>
+          <p style="margin-right: 10px">Строк/день:</p>
+          <p
+            style="font-weight: bold"
+            v-html="lineChanges > 0 ? Math.round(line/lineChanges) : 0"
+          ></p>
+        </div>
+      </div>
+      <br />
+      <div class="d-flex flex-row justify-content-between">
+        <div style="flex: 1; margin: 10px">
+          <p>Путь к проекту:</p>
+          <input
+            class="form-control"
+            style="padding: 10"
+            @input="inputMy"
+            v-model="path"
+          />
+        </div>
+        <div style="flex: 0.5; margin: 10px">
+          <p>Скользящая средняя (0 - отключить):</p>
+          <input
+            class="form-control"
+            style="padding: 10"
+            @input="update"
+            v-model="size"
+            type="number"
+          />
+        </div>
+        <button type="button" class="btn btn-primary" @click="update">
+          Обновить
+        </button>
+      </div>
+
+      <!-- Google chart: https://developers.google.com/chart/interactive/docs/quick_start -->
+      <div class="d-flex justify-content-center">
+        <div id="chart_div" style="width: 100%; height: 800px"></div>
+      </div>
+      <div class="d-flex justify-content-center">
+        <div id="dual_x_div" v-bind:style="dual_x_div_style"></div>
+      </div>
+      <br />
+    </div>
+
+    <!-- Vue -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+    <script>
+      new Vue({
+        el: "#app",
+        data: {
+          dual_x_div_style: { width: "100%" }, // Стиль графика
+          path: localStorage.path ? localStorage.path : "",
+          size: localStorage.size ? localStorage.size : "",
+          changes: [],
+          statistics: [],
+          commit: 0,
+          line: 0,
+          lineChanges: 0,
+        },
+        mounted() {},
+        methods: {
+          inputMy() {
+            localStorage.path = this.path
+          },
+          // inputMy2() {
+          //   localStorage.size = this.size
+          // },
+          update() {
+            localStorage.size = this.size
+            /* Запрос к серверу */
+            const requestOptions = {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ value: this.path, size: this.size }),
+            }
+            fetch("http://127.0.0.1:5000/post", requestOptions)
+              .then((response) => response.json())
+              .then((data) => {
+                this.changes = data.changes
+                this.statistics = data.statistics
+                this.commit = data.commit
+                this.line = data.line
+                this.lineChanges = data.lineChanges
+              })
+          },
+        },
+        watch: {
+          changes(newChanges, oldChanges) {
+            google.charts.load("current", { packages: ["corechart"] })
+            google.charts.setOnLoadCallback(drawChart)
+
+            function drawChart() {
+              var data = google.visualization.arrayToDataTable(newChanges)
+
+              var options = {
+                title: "Интенсивность работ",
+                hAxis: { title: "Дни", titleTextStyle: { color: "#333" } },
+                vAxis: { minValue: 0 },
+              }
+
+              var chart = new google.visualization.AreaChart(
+                document.getElementById("chart_div")
+              )
+              chart.draw(data, options)
+            }
+          },
+          statistics(newStatistics, oldStatistics) {
+            /* style */
+            this.dual_x_div_style = {
+              width: "70%",
+              height: this.statistics.length * 20 + 180 + "px",
+            }
+
+            google.charts.load("current", { packages: ["bar"] })
+            google.charts.setOnLoadCallback(drawStuff)
+
+            function drawStuff() {
+              var data = new google.visualization.arrayToDataTable(
+                newStatistics
+              )
+
+              var options = {
+                // width: 800,
+                chart: {
+                  title: "Объем работ",
+                  subtitle: "Количество коммитов и строк по файлам",
+                },
+                bars: "horizontal", // Required for Material Bar Charts.
+                series: {
+                  0: { axis: "distance" }, // Bind series 0 to an axis named 'distance'.
+                  1: { axis: "brightness" }, // Bind series 1 to an axis named 'brightness'.
+                },
+                axes: {
+                  x: {
+                    distance: { label: "Коммиты" }, // Bottom x-axis.
+                    brightness: { side: "top", label: "Строки" }, // Top x-axis.
+                  },
+                },
+              }
+
+              var chart = new google.charts.Bar(
+                document.getElementById("dual_x_div")
+              )
+              chart.draw(data, options)
+            }
+          },
+        },
+      })
+    </script>
+  </body>
+</html>
